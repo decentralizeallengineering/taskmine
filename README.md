@@ -63,3 +63,9 @@ pip install -e ".[test]" && pytest
 ```
 
 Licence: Apache-2.0.
+
+## Related
+
+- [toolcensus](https://github.com/decentralizeallengineering/toolcensus): count the tool calls your agent really makes and check them against another tool set
+- [donegate](https://github.com/decentralizeallengineering/donegate): Stop hook: no "done" without a test run after the last edit
+- [all tools](https://github.com/decentralizeallengineering): the index of this account
