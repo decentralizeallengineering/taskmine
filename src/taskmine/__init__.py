@@ -22,7 +22,7 @@ import tarfile
 import tempfile
 import time
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 TEST_RE = r"(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]*$|_test\.[A-Za-z]+$|\.(test|spec)\.[A-Za-z]+$"
 FIELDS = ["id", "base_sha", "fix_sha", "test_files", "check", "source_lines", "subject"]
 
@@ -93,21 +93,29 @@ def run_at(repo, rev, overlay_rev, files, check, timeout=120):
             pass
 
 
-def prove(repo, base, fix, files, check, red_rc=(1,), timeout=120):
-    """Return (True, "") when the check is red at base (exit code in red_rc) and green (0) at fix; else (False, reason)."""
-    rc, out = run_at(repo, base, fix, files, check, timeout)
-    if rc not in red_rc:
-        return False, f"parent run exit {rc}: " + ("green, not a fix" if rc == 0 else "not a plain failure (collection error, timeout or missing tool)")
-    rc2, out2 = run_at(repo, fix, fix, files, check, timeout)
-    if rc2 != 0:
-        return False, f"fix run exit {rc2}: still red at the fix"
+def prove(repo, base, fix, files, check, red_rc=(1,), timeout=120, repeat=1):
+    """Return (True, "") when the check is red at base (exit code in red_rc) and green (0) at fix; else (False, reason).
+
+    With repeat > 1 every run is done that many times at each end; one disagreeing run rejects the task as flaky."""
+    for i in range(max(1, repeat)):
+        rc, out = run_at(repo, base, fix, files, check, timeout)
+        if rc not in red_rc:
+            if i:
+                return False, f"flaky: parent run {i + 1} of {repeat} exit {rc}"
+            return False, f"parent run exit {rc}: " + ("green, not a fix" if rc == 0 else "not a plain failure (collection error, timeout or missing tool)")
+    for i in range(max(1, repeat)):
+        rc2, out2 = run_at(repo, fix, fix, files, check, timeout)
+        if rc2 != 0:
+            if i:
+                return False, f"flaky: fix run {i + 1} of {repeat} exit {rc2}"
+            return False, f"fix run exit {rc2}: still red at the fix"
     return True, ""
 
 
-def mine(repo, check, rev="HEAD", limit=200, want=10, max_lines=200, red_rc=(1,), timeout=120, test_re=TEST_RE, log=None):
+def mine(repo, check, rev="HEAD", limit=200, want=10, max_lines=200, red_rc=(1,), timeout=120, test_re=TEST_RE, log=None, repeat=1):
     tasks = []
     for sha, parent, tests, lines, subject in candidates(repo, rev, limit, test_re, max_lines):
-        ok, why = prove(repo, parent, sha, tests, check, red_rc, timeout)
+        ok, why = prove(repo, parent, sha, tests, check, red_rc, timeout, repeat)
         if log:
             log(f"{sha[:10]}\t{'task' if ok else 'skip: ' + why}")
         if ok:
@@ -157,11 +165,13 @@ def main(argv=None):
     m.add_argument("--timeout", type=int, default=120)
     m.add_argument("--test-re", default=TEST_RE, help="regex for test file paths")
     m.add_argument("--out", default="tasks.tsv")
+    m.add_argument("--repeat", type=int, default=1, help="run each check this many times at each end; any disagreement marks the task flaky")
     p = sub.add_parser("prove")
     p.add_argument("tasks")
     p.add_argument("repo")
     p.add_argument("--red-rc", default="1")
     p.add_argument("--timeout", type=int, default=120)
+    p.add_argument("--repeat", type=int, default=1)
     c = sub.add_parser("checkout")
     c.add_argument("tasks")
     c.add_argument("repo")
@@ -171,14 +181,14 @@ def main(argv=None):
     try:
         if a.cmd == "mine":
             tasks = mine(a.repo, a.check, a.rev, a.limit, a.want, a.max_lines, tuple(int(x) for x in a.red_rc.split(",")), a.timeout, a.test_re,
-                         log=lambda s: print(s, file=sys.stderr))
+                         log=lambda s: print(s, file=sys.stderr), repeat=a.repeat)
             write_tasks(a.out, tasks)
             print(f"{len(tasks)} proven tasks written to {a.out}")
             return 0 if tasks else 1
         if a.cmd == "prove":
             bad = 0
             for t in read_tasks(a.tasks):
-                ok, why = prove(a.repo, t["base_sha"], t["fix_sha"], t["test_files"].split(","), t["check"], tuple(int(x) for x in a.red_rc.split(",")), a.timeout)
+                ok, why = prove(a.repo, t["base_sha"], t["fix_sha"], t["test_files"].split(","), t["check"], tuple(int(x) for x in a.red_rc.split(",")), a.timeout, a.repeat)
                 print(f"{t['id']}\t{'proven' if ok else 'FAILED ' + why}")
                 bad += not ok
             return 1 if bad else 0

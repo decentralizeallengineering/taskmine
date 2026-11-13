@@ -38,14 +38,16 @@ agent. The sample output above is the shape of a run, with your own commit ids.
    code, a timeout or a missing tool means a collection error or a broken setup, so the
    commit is skipped, not counted as red.
 3. The same check runs at the fix and must exit 0.
+4. With `--repeat N` each end runs N times. One run that disagrees rejects the commit as
+   flaky, so a task that proved once does not fail later for no reason.
 
 Each run is in a throwaway `git worktree`, removed afterwards. Your working tree is never touched.
 
 ## Commands
 
-- `taskmine mine REPO --check CMD [--rev HEAD] [--limit 200] [--want 10] [--max-lines 200] [--red-rc 1] [--timeout 120] [--out tasks.tsv]`
+- `taskmine mine REPO --check CMD [--rev HEAD] [--limit 200] [--want 10] [--max-lines 200] [--red-rc 1] [--timeout 120] [--repeat 1] [--out tasks.tsv]`
   `{files}` in CMD becomes the commit's test files; without it they are appended.
-- `taskmine prove tasks.tsv REPO` reruns red and green for each task. Exit 1 if any fails.
+- `taskmine prove tasks.tsv REPO [--repeat 1]` reruns red and green for each task. Exit 1 if any fails.
 - `taskmine checkout tasks.tsv REPO ID DEST` unpacks parent plus test files into an empty DEST.
 
 `tasks.tsv` columns: `id, base_sha, fix_sha, test_files, check, source_lines, subject`.

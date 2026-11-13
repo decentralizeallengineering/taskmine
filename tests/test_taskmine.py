@@ -76,6 +76,19 @@ def test_prove_rejects_wrong_exit_code_and_unfixed(repo):
     assert not ok and "still red" in why
 
 
+def test_repeat_rejects_flaky_check(repo, tmp_path):
+    parent = git(repo, "rev-parse", fix_sha(repo) + "^")
+    assert prove(str(repo), parent, fix_sha(repo), ["tests/test_add.py"], CHECK, repeat=3) == (True, "")
+    counter, wrap = tmp_path / "n", tmp_path / "wrap.py"
+    # run 4 is the second run at the fix: it fails once, as a flaky test would
+    wrap.write_text(f"import runpy, sys\np = {str(counter)!r}\ntry:\n    n = int(open(p).read()) + 1\nexcept OSError:\n    n = 1\n"
+                    "open(p, 'w').write(str(n))\nif n == 4:\n    sys.exit(1)\nsys.argv = sys.argv[1:]\nrunpy.run_path(sys.argv[0])\n")
+    flaky = f"{sys.executable} {wrap} {{files}}"
+    assert prove(str(repo), parent, fix_sha(repo), ["tests/test_add.py"], flaky) == (True, "")  # runs 1 and 2: one run per end hides it
+    counter.unlink()
+    assert prove(str(repo), parent, fix_sha(repo), ["tests/test_add.py"], flaky, repeat=2) == (False, "flaky: fix run 2 of 2 exit 1")
+
+
 def test_tasks_file_round_trip_and_checkout_is_red(repo, tmp_path):
     tasks = mine(str(repo), CHECK)
     tf = tmp_path / "tasks.tsv"
